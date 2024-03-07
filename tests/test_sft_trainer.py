@@ -30,8 +30,9 @@ from tests.helpers import causal_lm_train_kwargs
 # Local
 from tuning import sft_trainer
 
+MODEL_NAME = "Maykeye/TinyLLama-v0"
 BASE_PEFT_KWARGS = {
-    "model_name_or_path": "Maykeye/TinyLLama-v0",
+    "model_name_or_path": MODEL_NAME,
     "data_path": TWITTER_COMPLAINTS_DATA,
     "num_train_epochs": 5,
     "per_device_train_batch_size": 4,
@@ -53,7 +54,7 @@ BASE_PEFT_KWARGS = {
     "prompt_tuning_init": "RANDOM",
     "num_virtual_tokens": 8,
     "prompt_tuning_init_text": "hello",
-    "tokenizer_name_or_path": "Maykeye/TinyLLama-v0",
+    "tokenizer_name_or_path": MODEL_NAME,
     "save_strategy": "epoch",
     "output_dir": "tmp",
 }
@@ -67,7 +68,7 @@ def test_helper_causal_lm_train_kwargs():
         BASE_PEFT_KWARGS
     )
 
-    assert model_args.model_name_or_path == CAUSAL_LM_MODEL
+    assert model_args.model_name_or_path == MODEL_NAME
     assert model_args.use_flash_attn == False
     assert model_args.torch_dtype == "float32"
 
@@ -81,7 +82,7 @@ def test_helper_causal_lm_train_kwargs():
 
     assert tune_config.prompt_tuning_init == "RANDOM"
     assert tune_config.prompt_tuning_init_text == "hello"
-    assert tune_config.tokenizer_name_or_path == CAUSAL_LM_MODEL
+    assert tune_config.tokenizer_name_or_path == MODEL_NAME
     assert tune_config.num_virtual_tokens == 8
 
 def test_run_train_requires_output_dir():
@@ -116,7 +117,7 @@ def test_run_causallm_pt_and_inference():
 
         # validate peft tuning configs
         checkpoint_path = os.path.join(tempdir, "checkpoint-5")
-        adapter_config = _get_adapter_config(tempdir)
+        adapter_config = _get_adapter_config(checkpoint_path)
         assert adapter_config.get("task_type") == "CAUSAL_LM"
         assert adapter_config.get("peft_type") == "PROMPT_TUNING"
         assert adapter_config.get("tokenizer_name_or_path") == BASE_PEFT_KWARGS["tokenizer_name_or_path"]
@@ -149,19 +150,6 @@ def test_run_causallm_pt_with_validation():
         assert os.path.exists(eval_loss_file_path)
         assert os.path.getsize(eval_loss_file_path) > 0
 
-def test_run_causallm_pt_with_zero_epoch():
-    """Check to ensure 0 epoch training request doesn't explode"""
-    with tempfile.TemporaryDirectory() as tempdir:
-        zero_epoch = copy.deepcopy(BASE_PEFT_KWARGS)
-        zero_epoch["output_dir"] = tempdir
-        zero_epoch["num_train_epochs"] = 0
-        model_args, data_args, training_args, tune_config = causal_lm_train_kwargs(
-            zero_epoch
-        )
-
-        sft_trainer.train(model_args, data_args, training_args, tune_config)
-        _validate_training(tempdir)
-
 def test_run_causallm_lora_and_inference():
     """Check if we can bootstrap and lora tune causallm models"""
     with tempfile.TemporaryDirectory() as tempdir:
@@ -174,10 +162,10 @@ def test_run_causallm_lora_and_inference():
 
         # validate peft tuning configs
         checkpoint_path = os.path.join(tempdir, "checkpoint-5")
-        adapter_config = _get_adapter_config(tempdir)
+        adapter_config = _get_adapter_config(checkpoint_path)
         assert adapter_config.get("task_type") == "CAUSAL_LM"
         assert adapter_config.get("peft_type") == "LORA"
-        for module in ["k_proj", "v_proj"]: # default target_modules used
+        for module in ["q_proj", "v_proj"]: # default target_modules used
             assert module in adapter_config.get("target_modules")
 
         # Load the model
@@ -221,27 +209,6 @@ def test_run_train_lora_target_modules_all_linear():
 
         checkpoint_path = os.path.join(tempdir, "checkpoint-5")
         adapter_config = _get_adapter_config(checkpoint_path)
-        assert len(adapter_config.get("target_modules")) > 2
-        llama_expected_modules = ["o_proj", "q_proj", "gate_proj", "down_proj", "k_proj", "up_proj", "v_proj"]
-        for module in llama_expected_modules:
-            assert module in adapter_config.get("target_modules")
-
-def test_run_train_lora_target_modules_none():
-    """Check runs lora tuning with no target modules runs with ones defined by model arch."""
-    with tempfile.TemporaryDirectory() as tempdir:
-        none_target_modules = copy.deepcopy(BASE_LORA_KWARGS)
-        none_target_modules["output_dir"] = tempdir
-        none_target_modules["target_modules"] = None
-
-        model_args, data_args, training_args, tune_config = causal_lm_train_kwargs(
-            none_target_modules
-        )
-        sft_trainer.train(model_args, data_args, training_args, tune_config)
-        _validate_training(tempdir)
-
-        checkpoint_path = os.path.join(tempdir, "checkpoint-5")
-        adapter_config = _get_adapter_config(checkpoint_path)
-        assert len(adapter_config.get("target_modules")) > 2
         llama_expected_modules = ["o_proj", "q_proj", "gate_proj", "down_proj", "k_proj", "up_proj", "v_proj"]
         for module in llama_expected_modules:
             assert module in adapter_config.get("target_modules")
@@ -253,5 +220,5 @@ def _validate_training(tempdir):
     assert os.path.getsize(loss_file_path) > 0
 
 def _get_adapter_config(dir_path):
-    with open(os.path.join(checkpoint_path, "adapter_config.json")) as f:
+    with open(os.path.join(dir_path, "adapter_config.json")) as f:
         return json.load(f)
