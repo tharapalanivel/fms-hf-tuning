@@ -25,14 +25,13 @@ import json
 # First Party
 from scripts.run_inference import TunedCausalLM
 from tests.data import TWITTER_COMPLAINTS_DATA
-from tests.fixtures import CAUSAL_LM_MODEL
 from tests.helpers import causal_lm_train_kwargs
 
 # Local
 from tuning import sft_trainer
 
 BASE_PEFT_KWARGS = {
-    "model_name_or_path": CAUSAL_LM_MODEL,
+    "model_name_or_path": "Maykeye/TinyLLama-v0",
     "data_path": TWITTER_COMPLAINTS_DATA,
     "num_train_epochs": 5,
     "per_device_train_batch_size": 4,
@@ -54,7 +53,7 @@ BASE_PEFT_KWARGS = {
     "prompt_tuning_init": "RANDOM",
     "num_virtual_tokens": 8,
     "prompt_tuning_init_text": "hello",
-    "tokenizer_name_or_path": CAUSAL_LM_MODEL,
+    "tokenizer_name_or_path": "Maykeye/TinyLLama-v0",
     "save_strategy": "epoch",
     "output_dir": "tmp",
 }
