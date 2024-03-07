@@ -23,13 +23,13 @@ import copy
 import json
 
 # First Party
+from scripts.run_inference import TunedCausalLM
 from tests.data import TWITTER_COMPLAINTS_DATA
 from tests.fixtures import CAUSAL_LM_MODEL
 from tests.helpers import causal_lm_train_kwargs
 
 # Local
 from tuning import sft_trainer
-from scripts import run_inference
 
 BASE_PEFT_KWARGS = {
     "model_name_or_path": CAUSAL_LM_MODEL,
@@ -116,14 +116,14 @@ def test_run_causallm_pt_and_inference():
         _validate_training(tempdir)
 
         # validate peft tuning configs
+        checkpoint_path = os.path.join(tempdir, "checkpoint-5")
         adapter_config = _get_adapter_config(tempdir)
         assert adapter_config.get("task_type") == "CAUSAL_LM"
         assert adapter_config.get("peft_type") == "PROMPT_TUNING"
         assert adapter_config.get("tokenizer_name_or_path") == BASE_PEFT_KWARGS["tokenizer_name_or_path"]
 
         # Load the model
-        checkpoint_path = _get_highest_checkpoint(tempdir)
-        loaded_model = run_inference.TunedCausalLM.load(checkpoint_path)
+        loaded_model = TunedCausalLM.load(checkpoint_path)
 
         # Run inference on the text
         output_inference = loaded_model.run("### Text: @NortonSupport Thanks much.\n\n### Label:", max_new_tokens=50)
@@ -161,6 +161,7 @@ def test_run_causallm_lora_and_inference():
         _validate_training(tempdir)
 
         # validate peft tuning configs
+        checkpoint_path = os.path.join(tempdir, "checkpoint-5")
         adapter_config = _get_adapter_config(tempdir)
         assert adapter_config.get("task_type") == "CAUSAL_LM"
         assert adapter_config.get("peft_type") == "LORA"
@@ -168,8 +169,7 @@ def test_run_causallm_lora_and_inference():
             assert module in adapter_config.get("target_modules")
 
         # Load the model
-        checkpoint_path = _get_highest_checkpoint(tempdir)
-        loaded_model = run_inference.TunedCausalLM.load(checkpoint_path)
+        loaded_model = TunedCausalLM.load(checkpoint_path)
 
         # Run inference on the text
         output_inference = loaded_model.run("Simply put, the theory of relativity states that ", max_new_tokens=50)
@@ -189,7 +189,8 @@ def test_run_train_lora_target_modules():
         sft_trainer.train(model_args, data_args, training_args, tune_config)
         _validate_training(tempdir)
 
-        adapter_config = _get_adapter_config(tempdir)
+        checkpoint_path = os.path.join(tempdir, "checkpoint-5")
+        adapter_config = _get_adapter_config(checkpoint_path)
         for module in lora_target_modules["target_modules"]:
             assert module in adapter_config.get("target_modules")
 
@@ -206,7 +207,28 @@ def test_run_train_lora_target_modules_all_linear():
         sft_trainer.train(model_args, data_args, training_args, tune_config)
         _validate_training(tempdir)
 
-        adapter_config = _get_adapter_config(tempdir)
+        checkpoint_path = os.path.join(tempdir, "checkpoint-5")
+        adapter_config = _get_adapter_config(checkpoint_path)
+        assert len(adapter_config.get("target_modules")) > 2
+        llama_expected_modules = ["o_proj", "q_proj", "gate_proj", "down_proj", "k_proj", "up_proj", "v_proj"]
+        for module in llama_expected_modules:
+            assert module in adapter_config.get("target_modules")
+
+def test_run_train_lora_target_modules_none():
+    """Check runs lora tuning with all linear target modules."""
+    with tempfile.TemporaryDirectory() as tempdir:
+        lora_target_modules = copy.deepcopy(BASE_LORA_KWARGS)
+        lora_target_modules["output_dir"] = tempdir
+        lora_target_modules["target_modules"] = None
+
+        model_args, data_args, training_args, tune_config = causal_lm_train_kwargs(
+            lora_target_modules
+        )
+        sft_trainer.train(model_args, data_args, training_args, tune_config)
+        _validate_training(tempdir)
+
+        checkpoint_path = os.path.join(tempdir, "checkpoint-5")
+        adapter_config = _get_adapter_config(checkpoint_path)
         assert len(adapter_config.get("target_modules")) > 2
         llama_expected_modules = ["o_proj", "q_proj", "gate_proj", "down_proj", "k_proj", "up_proj", "v_proj"]
         for module in llama_expected_modules:
@@ -219,20 +241,5 @@ def _validate_training(tempdir):
     assert os.path.getsize(loss_file_path) > 0
 
 def _get_adapter_config(dir_path):
-    checkpoint_path = _get_highest_checkpoint(dir_path)
     with open(os.path.join(checkpoint_path, "adapter_config.json")) as f:
         return json.load(f)
-
-def _get_highest_checkpoint(dir_path):
-    checkpoint_dir = ""
-    for curr_dir in os.listdir(dir_path):
-        if curr_dir.startswith("checkpoint"):
-            if checkpoint_dir:
-                curr_dir_num = int(checkpoint_dir.rsplit("-", maxsplit=1)[-1])
-                new_dir_num = int(curr_dir.split("-")[-1])
-                if new_dir_num > curr_dir_num:
-                    checkpoint_dir = curr_dir
-            else:
-                checkpoint_dir = curr_dir
-
-    return os.path.join(dir_path, checkpoint_dir)

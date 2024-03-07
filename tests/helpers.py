@@ -37,7 +37,6 @@ def causal_lm_train_kwargs(train_kwargs):
         lora_config,
         prompt_tuning_config,
     ) = parser.parse_dict(train_kwargs, allow_extra_keys=True)
-
     return (
         model_args,
         data_args,
