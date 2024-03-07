@@ -150,6 +150,19 @@ def test_run_causallm_pt_with_validation():
         assert os.path.exists(eval_loss_file_path)
         assert os.path.getsize(eval_loss_file_path) > 0
 
+def test_run_causallm_pt_with_zero_epoch():
+    """Check to ensure 0 epoch training request doesn't explode"""
+    with tempfile.TemporaryDirectory() as tempdir:
+        zero_epoch = copy.deepcopy(BASE_PEFT_KWARGS)
+        zero_epoch["output_dir"] = tempdir
+        zero_epoch["num_train_epochs"] = 0
+        model_args, data_args, training_args, tune_config = causal_lm_train_kwargs(
+            zero_epoch
+        )
+
+        sft_trainer.train(model_args, data_args, training_args, tune_config)
+        _validate_training(tempdir)
+
 def test_run_causallm_lora_and_inference():
     """Check if we can bootstrap and lora tune causallm models"""
     with tempfile.TemporaryDirectory() as tempdir:
@@ -215,14 +228,14 @@ def test_run_train_lora_target_modules_all_linear():
             assert module in adapter_config.get("target_modules")
 
 def test_run_train_lora_target_modules_none():
-    """Check runs lora tuning with all linear target modules."""
+    """Check runs lora tuning with no target modules runs with ones defined by model arch."""
     with tempfile.TemporaryDirectory() as tempdir:
-        lora_target_modules = copy.deepcopy(BASE_LORA_KWARGS)
-        lora_target_modules["output_dir"] = tempdir
-        lora_target_modules["target_modules"] = None
+        none_target_modules = copy.deepcopy(BASE_LORA_KWARGS)
+        none_target_modules["output_dir"] = tempdir
+        none_target_modules["target_modules"] = None
 
         model_args, data_args, training_args, tune_config = causal_lm_train_kwargs(
-            lora_target_modules
+            none_target_modules
         )
         sft_trainer.train(model_args, data_args, training_args, tune_config)
         _validate_training(tempdir)
